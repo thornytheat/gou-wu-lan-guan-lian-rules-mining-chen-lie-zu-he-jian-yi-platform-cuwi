@@ -11,8 +11,11 @@ export async function fetchRuns(limit = 10): Promise<{ runs: MiningRun[]; count:
   return data
 }
 
-export async function createRun(params: RunParams): Promise<MiningRun> {
-  const { data } = await http.post<MiningRun>('/mining/runs', params)
+export async function createRun(
+  params: RunParams,
+  batchIds: string[] = [],
+): Promise<MiningRun> {
+  const { data } = await http.post<MiningRun>('/mining/runs', { ...params, batch_ids: batchIds })
   return data
 }
 

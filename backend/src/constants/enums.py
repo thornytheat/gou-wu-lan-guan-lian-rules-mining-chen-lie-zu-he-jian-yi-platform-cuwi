@@ -65,6 +65,23 @@ class Channel(str, Enum):
     MINI_PROGRAM = "mini_program"
 
 
+class RuleChangeType(str, Enum):
+    """周度批次对比：同一规则组合（剥离批次前缀后的 rule identity）的变化类型。"""
+
+    NEW = "new"             # 新批次出现、基线批次没有
+    GONE = "gone"           # 基线批次有、新批次已消失（跌出支持度/过滤阈值）
+    STRONGER = "stronger"   # 两批都在，lift 相对增幅超过阈值 → 增强
+    WEAKER = "weaker"       # 两批都在，lift 相对降幅超过阈值 → 减弱
+    STABLE = "stable"       # 两批都在，lift 变化在阈值内 → 持平
+
+
+class BatchSource(str, Enum):
+    """小票批次来源。"""
+
+    SEED = "seed"       # 内置确定性 fixture
+    IMPORT = "import"   # 运营补入的周度小票
+
+
 TIER_LABELS: dict[str, str] = {
     StoreTier.HIGH.value: "高客流店",
     StoreTier.MID.value: "中客流店",
@@ -101,4 +118,17 @@ CHANNEL_LABELS: dict[str, str] = {
     Channel.POS.value: "收银机 POS",
     Channel.SELF_CHECKOUT.value: "自助收银",
     Channel.MINI_PROGRAM.value: "小程序扫码",
+}
+
+RULE_CHANGE_LABELS: dict[str, str] = {
+    RuleChangeType.NEW.value: "新增",
+    RuleChangeType.GONE.value: "消失",
+    RuleChangeType.STRONGER.value: "增强",
+    RuleChangeType.WEAKER.value: "减弱",
+    RuleChangeType.STABLE.value: "持平",
+}
+
+BATCH_SOURCE_LABELS: dict[str, str] = {
+    BatchSource.SEED.value: "内置样本",
+    BatchSource.IMPORT.value: "周度补入",
 }

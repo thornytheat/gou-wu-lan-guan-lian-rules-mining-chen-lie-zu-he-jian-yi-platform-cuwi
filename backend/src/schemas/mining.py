@@ -10,6 +10,8 @@ class RunCreateRequest(BaseModel):
     max_itemset: int = Field(default=3, ge=2, le=4)
     filter_lift: float = Field(default=1.2, ge=0.5, le=10)
     filter_confidence: float = Field(default=0.25, gt=0, le=1)
+    # 限定扫描的小票批次；空/不传 = 全量历史快照
+    batch_ids: list[str] = Field(default_factory=list, max_length=12)
 
 
 class RunOut(BaseModel):

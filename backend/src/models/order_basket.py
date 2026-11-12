@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import DateTime, Integer, Numeric, String
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,6 +19,13 @@ class OrderBasket(Base, TimestampMixin):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=new_uuid)
     basket_no: Mapped[str] = mapped_column(String(40), unique=True, nullable=False, index=True)
+    # 所属小票批次（每周补入独立建档；seed 数据挂 W45 批次）
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{settings.db_schema}.basket_batches.id"),
+        nullable=True,
+        index=True,
+    )
     store_code: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     store_name: Mapped[str] = mapped_column(String(80), nullable=False)
     store_tier: Mapped[str] = mapped_column(String(12), nullable=False, index=True)

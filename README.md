@@ -39,6 +39,10 @@
 3. **稳定性与归因**（`/rules/:id`）：共现矩阵热力图（SVG 自绘）、三层门店 lift + Wilson 区间、反例小票、增量口径拆解、
    复核记录（采纳 / 挂起 / 驳回，理由必填写入审计）。
 4. **陈列建议与工单**（`/planogram`）：货架位可视化、冲突组消解说明、预估月增量、发布、工单 CSV 导出、建议单历史。
+5. **周度批次对比**（`/compare`）：每周补入小票独立建档（内容指纹去重，同批重复导入只生效一次），
+   新批次与上周发布批次按规则组合逐一比对，**新增 / 消失 / 增强 / 减弱 / 持平**五类一眼分清，
+   头部同时标出两批样本小票数与时间范围；消失规则不进入新陈列建议，保留组合可追溯原复核结论与理由，
+   对比结果落快照，同一对批次（含已发布基线）重复请求与受影响货架位完全可复现。
 
 横切：JWT + 三角色 RBAC（低权角色调高权接口真实 403）、审计日志、Redis 滑动窗口限流、统一错误收敛。
 
@@ -55,13 +59,13 @@ docker compose ps             # 等 5/5 healthy（首次约 60-90s）
 - 后端 OpenAPI：<http://localhost:19259/api/docs>（直连；前端统一走 Nginx 的 `/api/` 反代）
 - 数据库：`localhost:17759`（PostgreSQL 16，schema `basketrule`）
 
-`SEED_DEMO=true` 时 backend 启动会自动执行一次幂等 seed（3,000 张小票 + 1 个演示挖掘批次 + 1 个已发布样板位 + 3 个账号），
-也可手动重跑：
+`SEED_DEMO=true` 时 backend 启动会自动执行一次幂等 seed（W45/W46 两批各 3,000 张小票 + 2 个挖掘批次
++ 1 个已发布样板位 + 3 个账号），也可手动重跑：
 
 ```bash
 docker compose exec backend python -m scripts.seed_demo
 # 末尾固定输出：
-# SEED_SUMMARY brand=basketrule skus=40 baskets=3000 rules=6 slots=1 users=3
+# SEED_SUMMARY brand=basketrule skus=40 batches=2 baskets=6000 rules=6 slots=1 users=3
 ```
 
 本地开发：
@@ -120,6 +124,21 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $VIEWER_TOKEN
 **可复现**：seed 用固定 `random.Random(20261112)` 生成小票，价格经过一次性调参使客单均值精确为 ¥40.00；
 两次 seed 输出同一行 `SEED_SUMMARY`。
 
+### 算法 3：周度批次对比（`diff_core.py` / `comparison_service.py`）
+
+- 规则身份归一：剥离批次前缀，`RUN-xxx@N01>N02` 与 `RUN-yyy@N01>N02` 视为同一组合。
+- 五类变化（主口径为 lift）：
+  - **新增**：新批次出现、基线没有；**消失**：基线有、新批次跌出支持度/过滤阈值。
+  - **增强/减弱**：两批都在，lift 相对变化率 `(新−旧)/旧` 严格超过 ±5%（`LIFT_CHANGE_EPSILON=0.05`），阈值内记**持平**。
+- 小票批次幂等：对规范化小票内容（按小票号、行内按 SKU 排序）计算 sha256 指纹，
+  `content_fingerprint` 唯一；同批文件重复导入直接短路，挖掘输入不变 → 结果只生效一次。
+- 对比快照：按 `(基线批次, 当前批次)` 存 `run_comparisons`，再次请求直接复用快照；
+  受影响货架位只统计基线**已发布**工单中规则消失/减弱的位，结果与快照逐字一致。
+- 血缘与不改挂：保留组合经 `rule_lineage` 继承基线复核结论/理由（只读追溯）；
+  新批次生成全新 `rule_candidate`，`planogram_slots.rule_id` 永指向当批规则，已发布工单不被改挂。
+- W46 演示数据（`fixtures_baskets_w46.py`，独立种子 20261119）固定产出
+  增强 `N01>N02`、减弱 `N07>N06`、消失 `B05>B04`、新增 `I08>C01`、其余 3 条持平。
+
 ## 6. 技术栈
 
 | 层 | 选型 |
@@ -139,15 +158,17 @@ gb-586/
 ├── .env / .env.example
 ├── backend/
 │   ├── Dockerfile / entrypoint.sh / requirements.txt / alembic.ini
-│   ├── migrations/                 # alembic 初始迁移（容器内实际走 create_all）
-│   ├── scripts/                    # bootstrap_db / fixtures / fixtures_baskets / seed_demo
+│   ├── migrations/                 # alembic 初始迁移 + 0002 周度批次（容器内实际走 create_all）
+│   ├── scripts/                    # bootstrap_db / fixtures / fixtures_baskets / fixtures_baskets_w46 / seed_demo
 │   └── src/
 │       ├── config/                 # settings / database / app / celery_app
 │       ├── constants/              # enums（共享枚举）/ roles / error_codes / limits / log_templates
-│       ├── models/                 # user / sku / order_basket / mining_run / rule_candidate / rule_review / planogram_slot / audit_log
-│       ├── schemas/                # auth / basket / mining / rule / planogram
-│       ├── services/               # apriori / stability / planogram / mining / rule / basket / export / audit / auth
-│       ├── controllers/ routes/    # 7 组路由，统一 /api 前缀
+│       ├── models/                 # user / sku / order_basket / basket_batch / mining_run / rule_candidate
+│       │                           #   / rule_review / rule_lineage / run_comparison / planogram_slot / audit_log
+│       ├── schemas/                # auth / basket / batch / mining / rule / planogram
+│       ├── services/               # apriori / stability / planogram / mining / rule / basket / basket_batch
+│       │                           #   / diff_core / comparison / lineage / export / audit / auth
+│       ├── controllers/ routes/    # 9 组路由，统一 /api 前缀
 │       ├── middlewares/            # auth / rbac / audit_logger / error_handler / rate_limit
 │       └── utils/                  # jwt / password / stats(Wilson) / redis / errors / logger
 ├── worker/
@@ -183,18 +204,18 @@ gb-586/
 
 ## 10. 共享枚举出现位置
 
-**枚举组 1：门店分层 / 批次状态 / 规则状态 / 复核动作 / 建议位状态 / 小票渠道**
+**枚举组 1：门店分层 / 批次状态 / 规则状态 / 复核动作 / 建议位状态 / 小票渠道 / 规则变化类型 / 小票批次来源**
 
 | 位置 | 作用 |
 |---|---|
-| `backend/src/constants/enums.py` | 定义 `StoreTier` `RunStatus` `RuleStatus` `ReviewDecision` `SlotStatus` `Channel` + 中文标签 |
+| `backend/src/constants/enums.py` | 定义 `StoreTier` `RunStatus` `RuleStatus` `ReviewDecision` `SlotStatus` `Channel` `RuleChangeType` `BatchSource` + 中文标签 |
 | `backend/src/models/*.py` | 列默认值（`status` 默认 `queued` / `candidate` / `draft`） |
-| `backend/src/schemas/*.py` | `ReviewRequest.decision`、`SlotUpdateRequest.status` 的 Literal 校验 |
-| `backend/src/services/{mining,rule,planogram,export}_service.py` | 状态流转与标签映射 |
+| `backend/src/schemas/*.py` | `ReviewRequest.decision`、`SlotUpdateRequest.status`、`ComparisonRequest` 的 Literal/枚举校验 |
+| `backend/src/services/{mining,rule,planogram,export,diff_core,comparison,lineage,basket_batch}_service.py` | 状态流转与标签映射 |
 | `backend/src/constants/roles.py` | 角色与能力矩阵 |
-| `frontend/src/constants/enums.ts` | 镜像定义 + 中文标签 |
+| `frontend/src/constants/enums.ts` | 镜像定义 + 中文标签（含 `RULE_CHANGE_LABELS` / `BATCH_SOURCE_LABELS`） |
 | `frontend/src/constants/roles.ts` | 角色镜像 + 角色任务说明 |
-| `frontend/src/types/domain.ts` | 联合类型（`RunStatus` / `RuleStatus` / …） |
+| `frontend/src/types/domain.ts` | 联合类型（`RunStatus` / `RuleStatus` / `RuleChangeType` / …） |
 | `frontend/src/pages/*.vue`、`components/common/*.vue` | 标签渲染与状态 chip |
 
 **枚举组 2：角色（admin / analyst / viewer）与能力（mining:run / rules:review / rules:publish / planogram:write / planogram:publish / rules:export / audit:read / baskets:read）**

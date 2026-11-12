@@ -9,9 +9,10 @@ from src.constants.enums import ReviewDecision, RuleStatus
 from src.constants.limits import MAX_PAGE_SIZE
 from src.constants.log_templates import ACTION_RULE_BATCH_REVIEW, ACTION_RULE_REVIEW
 from src.models.rule_candidate import RuleCandidate
+from src.models.rule_lineage import RuleLineage
 from src.models.rule_review import RuleReview
 from src.models.user import User
-from src.services import audit_service, basket_service, fixtures_loader, mining_service
+from src.services import audit_service, basket_service, fixtures_loader, lineage_service, mining_service
 from src.utils.errors import AppError
 
 DECISION_STATUS = {
@@ -38,10 +39,13 @@ def scope_run(db: Session, run_id: str | None) -> dict:
     return {"run": run, "rules": rows}
 
 
-def serialize_rule(row: RuleCandidate, names: dict[str, str]) -> dict:
+def serialize_rule(
+    row: RuleCandidate, names: dict[str, str], lineage_map: dict | None = None
+) -> dict:
     ante = [names.get(code, code) for code in row.antecedent]
     cons = [names.get(code, code) for code in row.consequent]
     meta = fixtures_loader.zone_payload(row.rule_key.split("@")[-1])
+    link = (lineage_map or {}).get(str(row.id))
     return {
         "id": str(row.id),
         "rule_key": row.rule_key,
@@ -73,6 +77,15 @@ def serialize_rule(row: RuleCandidate, names: dict[str, str]) -> dict:
         "shelf_label": meta.get("shelf_label", ""),
         "note": meta.get("note", ""),
         "reviews": [],
+        "lineage": None
+        if link is None
+        else {
+            "change_type": link.change_type,
+            "baseline_status": link.baseline_status,
+            "baseline_reason": link.baseline_reason,
+            "baseline_reviewer": link.baseline_reviewer,
+            "in_published_plan": link.in_published_plan,
+        },
     }
 
 
@@ -93,7 +106,17 @@ def list_rules(
     run = scoped["run"]
     rows = scoped["rules"]
     names, _ = basket_service.sku_maps(db)
-    items = [serialize_rule(row, names) for row in rows]
+    lineage_rows = (
+        db.execute(
+            select(RuleLineage).where(
+                RuleLineage.current_rule_id.in_([row.id for row in rows])
+            )
+        ).scalars().all()
+        if rows
+        else []
+    )
+    lineage_map = {str(link.current_rule_id): link for link in lineage_rows}
+    items = [serialize_rule(row, names, lineage_map=lineage_map) for row in rows]
 
     if status:
         items = [item for item in items if item["status"] == status]
@@ -179,6 +202,24 @@ def detail(db: Session, rule_id: str) -> dict:
         "monthly_factor": round(30 / max(1, payload["run"]["summary"].get("params", {}).get("sample_days", 7)), 4),
         "formula": "共现小票数 × 客单均值 × 采纳率 0.35 × (30 / 样本天数)",
     }
+    # 跨批次复核追溯：同一组合在上一批次的复核结论与理由（只读快照，不改挂工单）
+    link = lineage_service.lineage_for_rule(db, row.id)
+    if link is None:
+        payload["lineage"] = None
+    else:
+        baseline_run = mining_service.get_run(db, str(link.baseline_run_id))
+        payload["lineage"] = {
+            "rule_identity": link.rule_identity,
+            "change_type": link.change_type,
+            "baseline_run_label": baseline_run.run_label,
+            "baseline_status": link.baseline_status,
+            "baseline_reason": link.baseline_reason,
+            "baseline_reviewer": link.baseline_reviewer,
+            "baseline_reviewed_at": link.baseline_reviewed_at.isoformat()
+            if link.baseline_reviewed_at
+            else None,
+            "in_published_plan": link.in_published_plan,
+        }
     return payload
 
 

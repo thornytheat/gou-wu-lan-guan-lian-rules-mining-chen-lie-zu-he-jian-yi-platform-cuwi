@@ -80,6 +80,7 @@ const navItems = computed(() => {
     { to: '/mining', no: '01', label: '规则挖掘', hint: '参数 · 频繁项集' },
     { to: '/rules', no: '02', label: '规则复核', hint: '筛选 · 采纳 · 稳定性' },
     { to: '/planogram', no: '03', label: '陈列建议', hint: '货架位 · 增量 · 工单' },
+    { to: '/compare', no: '04', label: '批次对比', hint: '新增 · 消失 · 强弱' },
   ]
   return items
 })

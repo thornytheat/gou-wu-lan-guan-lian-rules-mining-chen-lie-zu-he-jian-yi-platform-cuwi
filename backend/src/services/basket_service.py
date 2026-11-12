@@ -17,8 +17,14 @@ def sku_maps(db: Session) -> tuple[dict[str, str], dict[str, str]]:
     return {row.code: row.name for row in rows}, {row.code: row.category for row in rows}
 
 
-def load_transactions(db: Session) -> list[tuple[frozenset[str], str]]:
-    rows = db.execute(select(OrderBasket.store_tier, OrderBasket.lines)).all()
+def load_transactions(
+    db: Session, batch_ids: list[str] | None = None
+) -> list[tuple[frozenset[str], str]]:
+    """加载挖掘输入；batch_ids 非空时只扫描指定小票批次，None 为全量历史快照。"""
+    stmt = select(OrderBasket.store_tier, OrderBasket.lines)
+    if batch_ids:
+        stmt = stmt.where(OrderBasket.batch_id.in_(batch_ids))
+    rows = db.execute(stmt).all()
     out: list[tuple[frozenset[str], str]] = []
     for tier, lines in rows:
         out.append((frozenset(line["sku"] for line in lines), tier))

@@ -145,6 +145,40 @@
             </div>
           </ShelfBand>
 
+          <ShelfBand index="—" title="跨批次复核追溯" caption="同一组合在上一批次的结论与理由（只读，不会改挂已发布工单）">
+            <div v-if="!rule.lineage" class="muted">
+              该组合没有上一批次记录（可能是本批新增），暂无历史复核结论。
+            </div>
+            <div v-else class="lineage">
+              <div class="lineage__head">
+                <span :class="['chip', changeTone(rule.lineage.change_type)]">
+                  {{ RULE_CHANGE_LABELS[rule.lineage.change_type] }}
+                </span>
+                <span class="mono lineage__run">{{ rule.lineage.baseline_run_label }}</span>
+                <span v-if="rule.lineage.in_published_plan" class="chip chip--mint">已进已发布工单</span>
+              </div>
+              <div v-if="rule.lineage.baseline_status" class="lineage__body">
+                <div class="lineage__row">
+                  <span class="label">原复核结论</span>
+                  <span :class="['chip', statusTone(rule.lineage.baseline_status)]">
+                    {{ RULE_STATUS_LABELS[rule.lineage.baseline_status] }}
+                  </span>
+                </div>
+                <div v-if="rule.lineage.baseline_reviewer" class="lineage__row">
+                  <span class="label">复核人 / 时间</span>
+                  <span>{{ rule.lineage.baseline_reviewer }} · {{ formatDateTime(rule.lineage.baseline_reviewed_at) }}</span>
+                </div>
+                <p v-if="rule.lineage.baseline_reason" class="lineage__reason">
+                  理由：{{ rule.lineage.baseline_reason }}
+                </p>
+                <p class="lineage__note">
+                  以上结论来自基线批次的同一商品组合，仅供本批复核参考；已发布工单仍挂在原规则记录上，不会被改挂到本批数据。
+                </p>
+              </div>
+              <div v-else class="muted">基线批次该组合尚未被复核。</div>
+            </div>
+          </ShelfBand>
+
           <ShelfBand index="—" title="去向" caption="采纳后进入陈列建议">
             <div class="next">
               <p>本规则属于冲突组 <b>{{ rule.conflict_group }}</b>；同类只有一个货架位，增量更高的那条会进入建议单。</p>
@@ -169,7 +203,14 @@ import MatrixHeat from '../components/common/MatrixHeat.vue'
 import { useRuleStore } from '../stores/ruleStore'
 import { useAuthStore } from '../stores/authStore'
 import { MESSAGES } from '../constants/messages'
-import { REVIEW_DECISION_LABELS, RULE_STATUS_LABELS, TIER_LABELS } from '../constants/enums'
+import {
+  REVIEW_DECISION_LABELS,
+  RULE_CHANGE_LABELS,
+  RULE_STATUS_LABELS,
+  TIER_LABELS,
+  type RuleChangeType,
+  type RuleStatus,
+} from '../constants/enums'
 import { formatCurrency, formatDateTime, formatPercent } from '../utils/format'
 
 const route = useRoute()
@@ -201,6 +242,18 @@ const metrics = computed<SlipItem[]>(() => {
 
 async function load() {
   await rules.open(route.params.id as string)
+}
+
+function changeTone(type: RuleChangeType): string {
+  if (type === 'new' || type === 'stronger') return 'chip--mint'
+  if (type === 'gone' || type === 'weaker') return 'chip--alert'
+  return 'chip--tag'
+}
+
+function statusTone(status: RuleStatus): string {
+  if (status === 'adopted') return 'chip--mint'
+  if (status === 'rejected') return 'chip--alert'
+  return 'chip--tag'
 }
 
 async function decide(decision: 'adopt' | 'reject' | 'park') {
@@ -360,6 +413,45 @@ onMounted(load)
   font-size: 11.5px;
   color: var(--ink-soft);
   margin-bottom: 8px;
+}
+.lineage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lineage__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lineage__run {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+.lineage__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-left: 2px solid var(--tag-deep);
+  padding-left: 9px;
+}
+.lineage__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 11.5px;
+  align-items: center;
+}
+.lineage__reason {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+}
+.lineage__note {
+  margin: 2px 0 0;
+  font-size: 10.5px;
+  color: var(--ink-faint);
 }
 @media (max-width: 1279px) {
   .columns {

@@ -7,12 +7,16 @@ export const RUN_STATUSES = ['queued', 'running', 'succeeded', 'failed'] as cons
 export const RULE_STATUSES = ['candidate', 'adopted', 'rejected', 'parked'] as const
 export const REVIEW_DECISIONS = ['adopt', 'reject', 'park'] as const
 export const SLOT_STATUSES = ['draft', 'published', 'archived'] as const
+export const RULE_CHANGE_TYPES = ['new', 'gone', 'stronger', 'weaker', 'stable'] as const
+export const BATCH_SOURCES = ['seed', 'import'] as const
 
 export type StoreTier = (typeof STORE_TIERS)[number]
 export type RunStatus = (typeof RUN_STATUSES)[number]
 export type RuleStatus = (typeof RULE_STATUSES)[number]
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number]
 export type SlotStatus = (typeof SLOT_STATUSES)[number]
+export type RuleChangeType = (typeof RULE_CHANGE_TYPES)[number]
+export type BatchSource = (typeof BATCH_SOURCES)[number]
 
 export const TIER_LABELS: Record<StoreTier, string> = {
   high: '高客流店',
@@ -50,4 +54,17 @@ export const CHANNEL_LABELS: Record<string, string> = {
   pos: '收银机 POS',
   self_checkout: '自助收银',
   mini_program: '小程序扫码',
+}
+
+export const RULE_CHANGE_LABELS: Record<RuleChangeType, string> = {
+  new: '新增',
+  gone: '消失',
+  stronger: '增强',
+  weaker: '减弱',
+  stable: '持平',
+}
+
+export const BATCH_SOURCE_LABELS: Record<BatchSource, string> = {
+  seed: '内置样本',
+  import: '周度补入',
 }

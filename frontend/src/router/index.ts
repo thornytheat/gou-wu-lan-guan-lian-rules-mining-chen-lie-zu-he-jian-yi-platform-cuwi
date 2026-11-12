@@ -35,6 +35,12 @@ const router = createRouter({
       component: () => import('../pages/PlanogramPage.vue'),
       meta: { title: '陈列建议', section: '03 陈列' },
     },
+    {
+      path: '/compare',
+      name: 'batch-compare',
+      component: () => import('../pages/BatchComparePage.vue'),
+      meta: { title: '批次对比', section: '04 对比' },
+    },
     { path: '/:pathMatch(.*)*', redirect: '/mining' },
   ],
   scrollBehavior: () => ({ top: 0 }),

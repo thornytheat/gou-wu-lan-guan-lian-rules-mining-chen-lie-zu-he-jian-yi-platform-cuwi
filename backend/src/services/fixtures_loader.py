@@ -10,9 +10,16 @@ def rule_meta(rule_key: str) -> dict:
     for spec in fixtures.PAIR_BUNDLES:
         if spec["key"] == tail:
             return spec
+    # 周度新规则的货架扩展（不参与 W45 小票生成）
+    if tail in fixtures.EXTRA_RULE_ZONES:
+        return fixtures.EXTRA_RULE_ZONES[tail]
     left, _, right = tail.partition(">")
     for spec in fixtures.PAIR_BUNDLES:
         if {spec["left"], spec["right"]} == {left, right}:
+            return spec
+    for spec in fixtures.EXTRA_RULE_ZONES.values():
+        spec_left, _, spec_right = spec["key"].partition(">")
+        if {spec_left, spec_right} == {left, right}:
             return spec
     return {}
 

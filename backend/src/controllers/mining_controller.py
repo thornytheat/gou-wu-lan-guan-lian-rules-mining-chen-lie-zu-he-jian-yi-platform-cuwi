@@ -9,7 +9,9 @@ from src.services import mining_service
 
 
 def create_run(db: Session, user: User, payload: RunCreateRequest, trace_id: str = "") -> dict:
-    run = mining_service.create_run(db, user, payload.model_dump(), trace_id=trace_id)
+    data = payload.model_dump()
+    batch_ids = data.pop("batch_ids", []) or []
+    run = mining_service.create_run(db, user, data, trace_id=trace_id, batch_ids=batch_ids)
     return mining_service.serialize_run(run, with_itemsets=False)
 
 

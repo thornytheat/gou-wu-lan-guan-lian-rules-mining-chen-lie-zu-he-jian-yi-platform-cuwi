@@ -89,6 +89,21 @@ def generate_plan(db: Session, user: User, run_id: str | None = None, trace_id: 
     candidates = _candidates(db, run)
     if not candidates:
         raise AppError(codes.CONFLICT, "当前批次没有可陈列的规则", "no candidates")
+    # 防护：新陈列建议只允许引用当前批次的规则记录；
+    # 消失的组合在当前批次没有 RuleCandidate，天然无法进入，这里再显式卡一道。
+    current_rule_ids = {
+        str(row_id)
+        for row_id in db.execute(
+            select(RuleCandidate.id).where(RuleCandidate.run_id == run.id)
+        ).scalars()
+    }
+    foreign = [item for item in candidates if item["rule_id"] not in current_rule_ids]
+    if foreign:
+        raise AppError(
+            codes.CONFLICT,
+            "存在不属于当前批次的规则，已阻止生成（消失规则不能进入新陈列建议）",
+            f"foreign_rules={[item['rule_key'] for item in foreign][:3]}",
+        )
     selection = select_slots(candidates, k=k)
     ordered = assign_positions(selection["slots"])
     for slot in ordered:

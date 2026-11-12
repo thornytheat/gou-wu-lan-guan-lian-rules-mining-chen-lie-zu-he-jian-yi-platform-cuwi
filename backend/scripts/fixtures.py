@@ -157,6 +157,24 @@ FILLER_BLOCK_LINES = (4, 5)
 PLAN_CODE_SEED = "PLAN-2026-W44"
 SEED_RUN_LABEL = "RUN-2026-W41-DEMO"
 
+# 不参与小票生成的货架元数据扩展：仅给后续周度新出现的规则补货架分区，
+# 放进 PAIR_BUNDLES 会改变 W45 的 Apriori 结构（46/12/6 契约），所以独立维护。
+EXTRA_RULE_ZONES: dict[str, dict] = {
+    "I08>C01": {
+        "key": "I08>C01",
+        "zone": "H1 水饮层",
+        "zone_code": "H1",
+        "shelf_label": "H1 水饮层 · 端头上格",
+        "note": "W46 新增强关联：矿泉水与无糖绿茶相邻陈列，补水场景连带。",
+    },
+}
+
+# 周度批次对比演示：W45 基线批次（首批 3,000 张）与 W46 新批次（补入 3,000 张）
+BATCH_W45_CODE = "BATCH-2026-W45"
+BATCH_W46_CODE = "BATCH-2026-W46"
+RUN_W46_LABEL = "RUN-2026-W46-DEMO"
+PLAN_CODE_W46 = "PLAN-2026-W46"
+
 
 def sku_price_map() -> dict[str, float]:
     return {item["code"]: float(item["price"]) for item in DEMO_SKUS}

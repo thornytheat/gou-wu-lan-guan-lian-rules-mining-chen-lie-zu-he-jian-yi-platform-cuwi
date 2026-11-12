@@ -55,7 +55,7 @@ export const useMiningStore = defineStore('mining', {
     },
     async loadRuns() {
       try {
-        const result = await fetchRuns(12)
+        const result = await fetchRuns(50)
         this.runs = result.runs
         if (!this.current && this.runs.length) {
           this.current = this.runs[0]
@@ -64,11 +64,11 @@ export const useMiningStore = defineStore('mining', {
         this.error = (error as Error).message
       }
     },
-    async runMining() {
+    async runMining(batchIds: string[] = []) {
       this.running = true
       this.error = ''
       try {
-        const run = await createRun(this.params)
+        const run = await createRun(this.params, batchIds)
         this.current = run
         this.runs = [run, ...this.runs.filter((item) => item.id !== run.id)]
         await this.pollRun(run.id)

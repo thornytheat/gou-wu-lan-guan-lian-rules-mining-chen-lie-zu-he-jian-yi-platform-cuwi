@@ -36,6 +36,17 @@
       <section class="col">
         <ShelfBand index="01" title="挖掘参数" caption="min_support 决定候选规模，过滤阈值决定可执行条数">
           <div class="params">
+            <label class="param param--full" v-if="canReadBaskets">
+              <span class="label">小票批次范围</span>
+              <select v-model="selectedBatchId" class="field" data-test="batch-scope">
+                <option value="">全量历史小票（不限批次）</option>
+                <option v-for="batch in batchStore.batches" :key="batch.id" :value="batch.id">
+                  {{ batch.batch_code }} · {{ batch.basket_count }} 张 ·
+                  {{ formatDate(batch.period_start) }}~{{ formatDate(batch.period_end) }}
+                </option>
+              </select>
+              <span class="param__hint">周度对比时选单个小票批次；重复运行同一批次，输入不变则结果只生效一次</span>
+            </label>
             <label class="param">
               <span class="label">最小支持度 min_support</span>
               <input v-model.number="mining.params.min_support" class="field" type="number" step="0.005" min="0.005" max="0.5" data-test="min-support" />
@@ -123,6 +134,8 @@
               <tr>
                 <th>批次</th>
                 <th>状态</th>
+                <th class="ta-r">小票</th>
+                <th>样本时间范围</th>
                 <th class="ta-r">频繁项集</th>
                 <th class="ta-r">候选规则</th>
                 <th class="ta-r">过滤后</th>
@@ -142,6 +155,10 @@
                   <span :class="['chip', run.status === 'succeeded' ? 'chip--mint' : run.status === 'failed' ? 'chip--alert' : '']">
                     {{ RUN_STATUS_LABELS[run.status] }}
                   </span>
+                </td>
+                <td class="ta-r is-num">{{ run.basket_count }}</td>
+                <td class="mono">
+                  {{ run.sample_start ? `${formatDate(run.sample_start)} ~ ${formatDate(run.sample_end)}` : '—' }}
                 </td>
                 <td class="ta-r is-num">{{ run.frequent_itemsets }}</td>
                 <td class="ta-r is-num">{{ run.candidate_rules }}</td>
@@ -223,7 +240,10 @@
 
             <div class="result__meta">
               样本 {{ summary.basket_count }} 张小票 · 客单均值 {{ formatCurrency(summary.mean_amount) }} ·
-              月化系数 {{ (30 / summary.params.sample_days).toFixed(2) }} · {{ formatDuration(mining.current?.duration_ms ?? 0) }}
+              月化系数 {{ (30 / (summary.params.sample_days ?? 7)).toFixed(2) }} · {{ formatDuration(mining.current?.duration_ms ?? 0) }}
+            </div>
+            <div v-if="mining.current?.sample_start" class="result__range">
+              样本时间范围：{{ formatDate(mining.current.sample_start) }} ~ {{ formatDate(mining.current.sample_end) }}
             </div>
           </div>
         </ShelfBand>
@@ -266,15 +286,25 @@ import StatSlip, { type SlipItem } from '../components/common/StatSlip.vue'
 import ErrorNotice from '../components/common/ErrorNotice.vue'
 import { useMiningStore } from '../stores/miningStore'
 import { useAuthStore } from '../stores/authStore'
+import { useBasketBatchStore } from '../stores/basketBatchStore'
 import { CHANNEL_LABELS, RUN_STATUS_LABELS, TIER_LABELS } from '../constants/enums'
-import { formatCurrency, formatDateTime, formatDuration, formatInteger, formatPercent } from '../utils/format'
+import {
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  formatDuration,
+  formatInteger,
+  formatPercent,
+} from '../utils/format'
 import type { MiningRun } from '../types/domain'
 
 const mining = useMiningStore()
 const auth = useAuthStore()
+const batchStore = useBasketBatchStore()
 const router = useRouter()
 
 const sizeFilter = ref<number | undefined>(undefined)
+const selectedBatchId = ref('')
 const canRun = computed(() => auth.can('mining:run'))
 const canReadBaskets = computed(() => auth.can('baskets:read'))
 const dataset = computed(() => mining.dataset)
@@ -315,7 +345,7 @@ const sizeTabs = [
 
 async function bootstrap() {
   if (canReadBaskets.value) {
-    await mining.loadDataset()
+    await Promise.all([mining.loadDataset(), batchStore.load()])
   }
   await mining.loadRuns()
   const latest = mining.current
@@ -326,7 +356,7 @@ async function bootstrap() {
 
 async function run() {
   try {
-    await mining.runMining()
+    await mining.runMining(selectedBatchId.value ? [selectedBatchId.value] : [])
     sizeFilter.value = undefined
     await mining.loadItemsets(mining.current!.id)
   } catch {
@@ -412,6 +442,15 @@ onMounted(bootstrap)
   border: 1px dashed var(--shelf-soft);
   padding: 8px 10px;
   gap: 3px;
+}
+.param--full {
+  grid-column: span 2;
+}
+.result__range {
+  font-size: 10.5px;
+  color: var(--mint-ink);
+  border-top: 1px dashed var(--shelf-soft);
+  padding-top: 6px;
 }
 .param--formula code {
   font-family: var(--tag-font);

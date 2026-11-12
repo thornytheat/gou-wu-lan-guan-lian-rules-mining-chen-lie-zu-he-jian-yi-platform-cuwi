@@ -3,6 +3,8 @@ export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed'
 export type RuleStatus = 'candidate' | 'adopted' | 'rejected' | 'parked'
 export type ReviewDecision = 'adopt' | 'reject' | 'park'
 export type SlotStatus = 'draft' | 'published' | 'archived'
+export type RuleChangeType = 'new' | 'gone' | 'stronger' | 'weaker' | 'stable'
+export type BatchSource = 'seed' | 'import'
 
 export interface RunParams {
   min_support: number
@@ -54,11 +56,113 @@ export interface MiningRun {
   stable_rules: number
   basket_count: number
   duration_ms: number
+  batch_ids: string[]
+  sample_start: string | null
+  sample_end: string | null
   summary: RunSummary | Record<string, never>
   error: string | null
   created_at: string | null
   finished_at: string | null
   itemsets?: Array<{ items: string[]; count: number; support: number; size: number }>
+}
+
+export interface BasketBatch {
+  id: string
+  batch_code: string
+  source: BatchSource
+  period_start: string | null
+  period_end: string | null
+  basket_count: number
+  imported_filename: string | null
+  note: string
+  created_at: string | null
+}
+
+export interface RuleLineageBrief {
+  change_type: RuleChangeType
+  baseline_status: RuleStatus | null
+  baseline_reason: string | null
+  baseline_reviewer: string
+  in_published_plan: boolean
+}
+
+export interface RuleLineageDetail extends RuleLineageBrief {
+  rule_identity: string
+  baseline_run_label: string
+  baseline_reviewed_at: string | null
+}
+
+export interface ChangeMetricSide {
+  lift: number | null
+  support: number | null
+  confidence: number | null
+  cooccur_count: number | null
+  uplift_month: number | null
+  stable: boolean | null
+  status: RuleStatus | null
+}
+
+export interface RuleChangeRow {
+  rule_identity: string
+  change_type: RuleChangeType
+  antecedent: string[]
+  consequent: string[]
+  label: string
+  baseline_rule_id: string | null
+  current_rule_id: string | null
+  baseline: ChangeMetricSide
+  current: ChangeMetricSide
+  lift_delta: number | null
+  lift_change_ratio: number | null
+  cooccur_delta: number | null
+  uplift_delta: number | null
+  zone: string
+  shelf_label: string
+  conflict_group: string
+  lineage: {
+    baseline_status: RuleStatus | null
+    baseline_reason: string | null
+    baseline_reviewer: string
+    baseline_reviewed_at: string | null
+    in_published_plan: boolean
+  } | null
+}
+
+export interface ComparisonRunSnapshot {
+  run_id: string
+  run_label: string
+  basket_count: number
+  sample_start: string | null
+  sample_end: string | null
+  batch_ids: string[]
+  passed_rules: number
+  stable_rules: number
+  created_at: string | null
+}
+
+export interface AffectedSlot {
+  slot_key: string
+  plan_code: string
+  shelf_label: string
+  zone: string
+  rule_identity: string
+  rule_label: string
+  change_type: RuleChangeType
+  baseline_lift: number | null
+  current_lift: number | null
+  lift_delta: number | null
+  est_uplift: number
+}
+
+export interface RunComparison {
+  comparison_key: string
+  reused_snapshot: boolean
+  counts: Record<RuleChangeType, number>
+  baseline: ComparisonRunSnapshot
+  current: ComparisonRunSnapshot
+  changes: RuleChangeRow[]
+  affected_slots: AffectedSlot[]
+  snapshot_at: string | null
 }
 
 export interface ItemsetRow {
@@ -155,6 +259,7 @@ export interface Rule {
   shelf_label: string
   note: string
   reviews?: RuleReview[]
+  lineage?: RuleLineageBrief | null
 }
 
 export interface RuleDetail extends Rule {
@@ -165,6 +270,7 @@ export interface RuleDetail extends Rule {
   }
   counterexamples: Basket[]
   run: MiningRun
+  lineage: RuleLineageDetail | null
   uplift_basis: {
     cooccur_count: number
     mean_amount: number | null

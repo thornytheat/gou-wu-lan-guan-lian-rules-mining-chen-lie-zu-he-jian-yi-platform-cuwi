@@ -20,12 +20,15 @@ from src.constants.limits import MAX_BASKETS_PER_RUN
 from src.models.mining_run import MiningRun
 from src.models.order_basket import OrderBasket
 from src.models.rule_candidate import RuleCandidate
+from src.models.rule_lineage import RuleLineage
 from src.models.user import User
 from src.services import (
     apriori_service,
     audit_service,
+    basket_batch_service,
     basket_service,
     fixtures_loader,
+    lineage_service,
     mining_core,
     planogram_service,
     stability_service,
@@ -56,9 +59,16 @@ def normalize_params(payload: dict | None) -> dict:
     return mining_core.normalize_params(DEFAULT_PARAMS, payload)
 
 
-def create_run(db: Session, user: User, payload: dict | None, trace_id: str = "") -> MiningRun:
+def create_run(
+    db: Session,
+    user: User,
+    payload: dict | None,
+    trace_id: str = "",
+    batch_ids: list[str] | None = None,
+) -> MiningRun:
     params = normalize_params(payload)
     mining_core.validate_params(params)
+    resolved_batch_ids = basket_batch_service.resolve_batch_ids(db, batch_ids)
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     label = f"RUN-{stamp}"
@@ -73,6 +83,7 @@ def create_run(db: Session, user: User, payload: dict | None, trace_id: str = ""
         status=RunStatus.QUEUED.value,
         itemsets=[],
         summary={},
+        batch_ids=resolved_batch_ids or [],
         created_by=user.id,
         created_at=_now(),
     )
@@ -84,7 +95,12 @@ def create_run(db: Session, user: User, payload: dict | None, trace_id: str = ""
         actor=user,
         entity_type="mining_run",
         entity_id=run.id,
-        detail={"run_label": label, "params": params},
+        detail={
+            "run_label": label,
+            "params": params,
+            "batch_ids": resolved_batch_ids or [],
+            "scope": "batches" if resolved_batch_ids else "all_baskets",
+        },
         trace_id=trace_id,
     )
     db.commit()
@@ -128,14 +144,22 @@ def execute_run(run_id: str) -> None:
 def _execute(db: Session, run: MiningRun) -> None:
     started = time.perf_counter()
     params = normalize_params(run.params)
-    transactions = basket_service.load_transactions(db)
+    batch_ids = list(run.batch_ids or []) or None
+    transactions = basket_service.load_transactions(db, batch_ids=batch_ids)
     if not transactions:
         raise RuntimeError("小票样本为空，无法挖掘")
     if len(transactions) > MAX_BASKETS_PER_RUN:
         raise RuntimeError(f"小票样本超过单次上限 {MAX_BASKETS_PER_RUN}")
 
-    basket_count = db.execute(select(func.count()).select_from(OrderBasket)).scalar_one()
-    revenue = db.execute(select(func.coalesce(func.sum(OrderBasket.net_amount), 0))).scalar_one()
+    basket_stmt = select(
+        func.count(),
+        func.coalesce(func.sum(OrderBasket.net_amount), 0),
+        func.min(OrderBasket.basket_ts),
+        func.max(OrderBasket.basket_ts),
+    )
+    if batch_ids:
+        basket_stmt = basket_stmt.where(OrderBasket.batch_id.in_(batch_ids))
+    basket_count, revenue, sample_start, sample_end = db.execute(basket_stmt).one()
     mean_amount = round(float(revenue) / basket_count, 2)
 
     result = apriori_service.apriori(
@@ -153,6 +177,13 @@ def _execute(db: Session, run: MiningRun) -> None:
     # 同一批次重跑：先清掉旧规则（含关联建议位由 planogram 负责重算）
     existing = db.execute(select(RuleCandidate.id).where(RuleCandidate.run_id == run.id)).scalars().all()
     if existing:
+        # 血缘记录引用本批规则，重跑时一并清除后重建（已发布工单挂的是旧 rule_id，不受影响）
+        db.execute(
+            delete(RuleLineage).where(
+                (RuleLineage.current_rule_id.in_(existing))
+                | (RuleLineage.baseline_rule_id.in_(existing))
+            )
+        )
         db.execute(delete(RuleCandidate).where(RuleCandidate.run_id == run.id))
         db.flush()
 
@@ -214,6 +245,8 @@ def _execute(db: Session, run: MiningRun) -> None:
     run.stable_rules = sum(1 for row in rows if row.stable)
     run.basket_count = result["basket_count"]
     run.duration_ms = duration_ms
+    run.sample_start = sample_start
+    run.sample_end = sample_end
     run.itemsets = result["itemsets"]
     run.summary = {
         "basket_count": result["basket_count"],
@@ -226,6 +259,9 @@ def _execute(db: Session, run: MiningRun) -> None:
         "filtered_out": len(candidate_rules) - len(passed),
         "stable_rules": sum(1 for row in rows if row.stable),
         "params": params,
+        "batch_ids": batch_ids or [],
+        "sample_start": sample_start.isoformat() if sample_start else None,
+        "sample_end": sample_end.isoformat() if sample_end else None,
         "selection": {
             "slot_count": selection["slot_count"],
             "total_uplift": selection["total_uplift"],
@@ -247,6 +283,10 @@ def _execute(db: Session, run: MiningRun) -> None:
         "algorithm": "apriori@1.0.0 + wilson-tier@1.0.0 + greedy-knapsack@1.0.0",
     }
     run.finished_at = _now()
+    db.flush()
+
+    # 规则血缘：把基线批次的复核结论/理由连到新批次同一组合（不改挂任何已发布工单）
+    lineage_service.build_lineage(db, run)
     db.flush()
     logger.info(
         "run %s done: itemsets=%s candidates=%s passed=%s stable=%s slots=%s uplift=%s",
@@ -284,6 +324,9 @@ def serialize_run(run: MiningRun, with_itemsets: bool = False) -> dict:
         "stable_rules": run.stable_rules,
         "basket_count": run.basket_count,
         "duration_ms": run.duration_ms,
+        "batch_ids": [str(bid) for bid in (run.batch_ids or [])],
+        "sample_start": run.sample_start.isoformat() if run.sample_start else None,
+        "sample_end": run.sample_end.isoformat() if run.sample_end else None,
         "summary": run.summary,
         "error": run.error,
         "created_at": run.created_at.isoformat() if run.created_at else None,
@@ -322,7 +365,13 @@ def itemsets_page(db: Session, run: MiningRun, offset: int, limit: int, size: in
     return {"total": total, "offset": offset, "limit": limit, "rows": rows}
 
 
-def create_seed_run(db: Session, user: User, run_label: str, params: dict | None = None) -> tuple[MiningRun, bool]:
+def create_seed_run(
+    db: Session,
+    user: User,
+    run_label: str,
+    params: dict | None = None,
+    batch_ids: list[str] | None = None,
+) -> tuple[MiningRun, bool]:
     """seed 专用：固定 run_label，同事务内同步跑完算法（幂等）。"""
     existing = db.execute(select(MiningRun).where(MiningRun.run_label == run_label)).scalar_one_or_none()
     if existing is not None:
@@ -333,6 +382,7 @@ def create_seed_run(db: Session, user: User, run_label: str, params: dict | None
         status=RunStatus.RUNNING.value,
         itemsets=[],
         summary={},
+        batch_ids=batch_ids or [],
         created_by=user.id,
         created_at=_now(),
     )

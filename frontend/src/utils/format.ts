@@ -33,6 +33,28 @@ export function formatDuration(ms: number): string {
   return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(2)} s`
 }
 
+export function formatDate(value: string | null | undefined): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+export function formatSignedPercent(value: number | null | undefined, digits = 1): string {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—'
+  const num = Number(value) * 100
+  const sign = num > 0 ? '+' : ''
+  return `${sign}${num.toFixed(digits)}%`
+}
+
+export function formatSignedNumber(value: number | null | undefined, digits = 2): string {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—'
+  const num = Number(value)
+  const sign = num > 0 ? '+' : ''
+  return `${sign}${num.toFixed(digits)}`
+}
+
 export function shortenRule(label: string, max = 34): string {
   return label.length > max ? `${label.slice(0, max - 1)}…` : label
 }

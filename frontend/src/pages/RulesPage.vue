@@ -125,6 +125,15 @@
                 <span class="rule-link__pair">{{ rule.consequent_labels.join(' + ') }}</span>
               </RouterLink>
               <div class="rule-sub">{{ rule.zone }} · 冲突组 {{ rule.conflict_group }}</div>
+              <div v-if="rule.lineage" class="rule-lineage">
+                <span :class="['chip chip--sm', changeTone(rule.lineage.change_type)]">
+                  较上批{{ RULE_CHANGE_LABELS[rule.lineage.change_type] }}
+                </span>
+                <span v-if="rule.lineage.baseline_status" :class="['chip chip--sm', statusTone(rule.lineage.baseline_status)]">
+                  原判{{ RULE_STATUS_LABELS[rule.lineage.baseline_status] }}
+                </span>
+                <span v-if="rule.lineage.in_published_plan" class="chip chip--sm chip--mint">已进工单</span>
+              </div>
             </td>
             <td class="ta-r is-num">{{ formatPercent(rule.support) }}</td>
             <td class="ta-r is-num">{{ formatPercent(rule.confidence) }}</td>
@@ -180,7 +189,12 @@ import { useRuleStore } from '../stores/ruleStore'
 import { useAuthStore } from '../stores/authStore'
 import { useRuleFilter } from '../hooks/useRuleFilter'
 import { MESSAGES } from '../constants/messages'
-import { RULE_STATUSES, RULE_STATUS_LABELS } from '../constants/enums'
+import {
+  RULE_CHANGE_LABELS,
+  RULE_STATUSES,
+  RULE_STATUS_LABELS,
+  type RuleChangeType,
+} from '../constants/enums'
 import { formatCurrency, formatPercent } from '../utils/format'
 import { rulesExportUrl } from '../api/rules'
 
@@ -215,6 +229,12 @@ function statusTone(status: string): string {
   if (status === 'rejected') return 'chip--alert'
   if (status === 'parked') return 'chip--tag'
   return ''
+}
+
+function changeTone(type: RuleChangeType): string {
+  if (type === 'new' || type === 'stronger') return 'chip--mint'
+  if (type === 'gone' || type === 'weaker') return 'chip--alert'
+  return 'chip--tag'
 }
 
 async function apply() {
@@ -339,6 +359,16 @@ onMounted(async () => {
   font-size: 10px;
   color: var(--ink-faint);
   margin-top: 2px;
+}
+.rule-lineage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.chip--sm {
+  font-size: 9.5px;
+  padding: 1px 6px;
 }
 .rule-lift {
   font-weight: 700;

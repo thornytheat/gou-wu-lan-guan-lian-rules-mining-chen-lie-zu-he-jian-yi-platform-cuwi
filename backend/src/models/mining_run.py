@@ -27,6 +27,11 @@ class MiningRun(Base, TimestampMixin):
     stable_rules: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     basket_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 本次挖掘扫描的小票批次（空 = 全量历史快照，保持旧语义）
+    batch_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # 样本时间范围（取扫描小票 basket_ts 的 min/max），周度对比头部直接展示
+    sample_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sample_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     itemsets: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     summary: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
